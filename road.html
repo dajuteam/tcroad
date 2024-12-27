@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>道路資訊查詢</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        input, button, select {
+            padding: 10px;
+            margin: 5px;
+            font-size: 16px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        .road-width {
+            color: red;
+            font-weight: bold;
+        }
+        #status {
+            margin: 10px;
+            font-size: 14px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>道路資訊查詢</h1>
+        <p>請輸入路名的關鍵字進行查詢：</p>
+        <input type="text" id="roadName" placeholder="輸入路名關鍵字">
+        <button onclick="queryRoadData()">搜尋</button>
+        <div id="status"></div>
+        <div id="filters" style="display: none;">
+            <select id="areaFilter" onchange="applyFilters()">
+                <option value="">所有地區</option>
+            </select>
+            <select id="laneFilter" onchange="applyFilters()">
+                <option value="">所有巷</option>
+            </select>
+            <select id="alleyFilter" onchange="applyFilters()">
+                <option value="">所有弄</option>
+            </select>
+        </div>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let csvData = [];
+        let filteredData = [];
+
+        // 自動讀取同層資料夾的 road.csv 檔案
+        async function loadCSV() {
+            const filePath = './road.csv';
+            const statusDiv = document.getElementById('status');
+            try {
+                const response = await fetch(filePath);
+                if (!response.ok) {
+                    throw new Error(`無法載入檔案: ${filePath}`);
+                }
+                const text = await response.text();
+                csvData = parseCSV(text);
+                statusDiv.innerHTML = '<p class="success">成功讀取 road.csv 檔案！</p>';
+                console.log("CSV 檔案已成功載入！");
+            } catch (error) {
+                statusDiv.innerHTML = `<p class="error">無法讀取 road.csv 檔案，請確認檔案是否存在於同一資料夾中。</p>`;
+                console.error("載入 CSV 檔案失敗:", error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const rows = text.split('\n').map(row => row.split(','));
+            const headers = rows.shift(); // 取得標題列
+            return rows.map(row => {
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header.trim()] = row[index]?.trim() || '無資料'; // 建立物件，空值填入 "無資料"
+                });
+                return obj;
+            });
+        }
+
+        function queryRoadData() {
+            const roadName = document.getElementById('roadName').value.trim();
+            const resultDiv = document.getElementById('result');
+            const filtersDiv = document.getElementById('filters');
+
+            if (!roadName) {
+                resultDiv.innerHTML = '<p style="color: red;">請輸入路名的關鍵字！</p>';
+                filtersDiv.style.display = 'none';
+                return;
+            }
+
+            filteredData = csvData.filter(row => row['路名']?.includes(roadName));
+
+            if (filteredData.length === 0) {
+                resultDiv.innerHTML = `<p>沒有找到包含「${roadName}」的道路資料。</p>`;
+                filtersDiv.style.display = 'none';
+                return;
+            }
+
+            populateFilters();
+            filtersDiv.style.display = 'block';
+            displayResults(filteredData);
+        }
+
+        function populateFilters() {
+            const areaSet = new Set(filteredData.map(row => row['地區']));
+            const laneSet = new Set(filteredData.map(row => row['巷']));
+            const alleySet = new Set(filteredData.map(row => row['弄']));
+
+            const areaFilter = document.getElementById('areaFilter');
+            const laneFilter = document.getElementById('laneFilter');
+            const alleyFilter = document.getElementById('alleyFilter');
+
+            areaFilter.innerHTML = '<option value="">所有地區</option>';
+            laneFilter.innerHTML = '<option value="">所有巷</option>';
+            alleyFilter.innerHTML = '<option value="">所有弄</option>';
+
+            areaSet.forEach(area => {
+                const option = document.createElement('option');
+                option.value = area;
+                option.textContent = area;
+                areaFilter.appendChild(option);
+            });
+
+            laneSet.forEach(lane => {
+                const option = document.createElement('option');
+                option.value = lane;
+                option.textContent = lane;
+                laneFilter.appendChild(option);
+            });
+
+            alleySet.forEach(alley => {
+                const option = document.createElement('option');
+                option.value = alley;
+                option.textContent = alley;
+                alleyFilter.appendChild(option);
+            });
+        }
+
+        function applyFilters() {
+            const areaFilter = document.getElementById('areaFilter').value;
+            const laneFilter = document.getElementById('laneFilter').value;
+            const alleyFilter = document.getElementById('alleyFilter').value;
+
+            const results = filteredData.filter(row => {
+                const areaMatch = !areaFilter || row['地區'] === areaFilter;
+                const laneMatch = !laneFilter || row['巷'] === laneFilter;
+                const alleyMatch = !alleyFilter || row['弄'] === alleyFilter;
+                return areaMatch && laneMatch && alleyMatch;
+            });
+
+            displayResults(results);
+        }
+
+        function displayResults(results) {
+            const resultDiv = document.getElementById('result');
+
+            if (results.length === 0) {
+                resultDiv.innerHTML = `<p>沒有符合篩選條件的資料。</p>`;
+                return;
+            }
+
+            let tableHtml = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>路名</th>
+                            <th>地區</th>
+                            <th>巷</th>
+                            <th>弄</th>
+                            <th>路寬</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            results.forEach((item, index) => {
+                tableHtml += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item['路名'] || '無資料'}</td>
+                        <td>${item['地區'] || '無資料'}</td>
+                        <td>${item['巷'] || '無資料'}</td>
+                        <td>${item['弄'] || '無資料'}</td>
+                        <td class="road-width">${item['路寬'] || '無資料'}</td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += `</tbody></table>`;
+            resultDiv.innerHTML = tableHtml;
+        }
+
+        // 頁面載入後自動讀取 CSV
+        window.onload = loadCSV;
+    </script>
+</body>
+</html>
