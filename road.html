@@ -49,12 +49,16 @@
     </style>
 </head>
 <body>
+    
     <div class="container">
         <h1>道路資訊查詢</h1>
         <p>請輸入路名的關鍵字進行查詢：</p>
         <input type="text" id="roadName" placeholder="輸入路名關鍵字">
         <button onclick="queryRoadData()">搜尋</button>
         <div id="status"></div>
+       
+<input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleFileUpload(event)">
+
         <div id="filters" style="display: none;">
             <select id="areaFilter" onchange="applyFilters()">
                 <option value="">所有地區</option>
@@ -69,157 +73,201 @@
         <div id="result"></div>
     </div>
 
-    <script>
-        let csvData = [];
-        let filteredData = [];
+    <h6>2025/09/10修正</h6>
 
-        // 自動讀取同層資料夾的 road.csv 檔案
-        async function loadCSV() {
-            const filePath = './road.csv';
-            const statusDiv = document.getElementById('status');
-            try {
-                const response = await fetch(filePath);
-                if (!response.ok) {
-                    throw new Error(`無法載入檔案: ${filePath}`);
-                }
-                const text = await response.text();
-                csvData = parseCSV(text);
-                statusDiv.innerHTML = '<p class="success">成功讀取 road.csv 檔案！</p>';
-                console.log("CSV 檔案已成功載入！");
-            } catch (error) {
-                statusDiv.innerHTML = `<p class="error">無法讀取 road.csv 檔案，請確認檔案是否存在於同一資料夾中。</p>`;
-                console.error("載入 CSV 檔案失敗:", error.message);
-            }
-        }
+  <script>
+  let csvData = [];
+  let filteredData = [];
 
-        function parseCSV(text) {
-            const rows = text.split('\n').map(row => row.split(','));
-            const headers = rows.shift(); // 取得標題列
-            return rows.map(row => {
-                const obj = {};
-                headers.forEach((header, index) => {
-                    obj[header.trim()] = row[index]?.trim() || '無資料'; // 建立物件，空值填入 "無資料"
-                });
-                return obj;
-            });
-        }
+  function stripBOM(s = "") {
+    return s.replace(/^\uFEFF/, "");
+  }
 
-        function queryRoadData() {
-            const roadName = document.getElementById('roadName').value.trim();
-            const resultDiv = document.getElementById('result');
-            const filtersDiv = document.getElementById('filters');
+  // 更穩健的 CSV 解析：處理 \r\n、空行、BOM；（簡化版，未完整支援引號+逗號）
+  function parseCSV(text) {
+    const cleaned = stripBOM(text || "");
+    const lines = cleaned.split(/\r?\n/).filter(l => l.trim() !== "");
+    if (lines.length === 0) return [];
 
-            if (!roadName) {
-                resultDiv.innerHTML = '<p style="color: red;">請輸入路名的關鍵字！</p>';
-                filtersDiv.style.display = 'none';
-                return;
-            }
+    const headers = lines.shift().split(",").map(h => stripBOM(h).trim());
 
-            filteredData = csvData.filter(row => row['路名']?.includes(roadName));
+    return lines.map(line => {
+      const cols = line.split(","); // 若未使用含逗號的引號欄位，這樣就夠
+      const obj = {};
+      headers.forEach((header, i) => {
+        const v = (cols[i] ?? "").trim();
+        obj[header] = v || "無資料";
+      });
+      return obj;
+    });
+  }
 
-            if (filteredData.length === 0) {
-                resultDiv.innerHTML = `<p>沒有找到包含「${roadName}」的道路資料。</p>`;
-                filtersDiv.style.display = 'none';
-                return;
-            }
+  async function loadCSV() {
+    const statusDiv = document.getElementById('status');
+    const fileInput = document.getElementById('csvFile');
 
-            populateFilters();
-            filtersDiv.style.display = 'block';
-            displayResults(filteredData);
-        }
+    // 若以 file:// 直接開啟，很多瀏覽器會封鎖 fetch 本機檔案
+    const isFileProtocol = location.protocol === 'file:';
+    if (isFileProtocol) {
+      statusDiv.innerHTML = `
+        <p class="error">偵測到以 <code>file://</code> 開啟，瀏覽器可能封鎖讀取 <code>road.csv</code>。</p>
+        <p>請點選下方按鈕改用手動載入檔案，或以本機伺服器開啟（例如 VSCode Live Server / <code>npx serve</code>）。</p>
+      `;
+      fileInput.style.display = 'inline-block';
+      return;
+    }
 
-        function populateFilters() {
-            const areaSet = new Set(filteredData.map(row => row['地區']));
-            const laneSet = new Set(filteredData.map(row => row['巷']));
-            const alleySet = new Set(filteredData.map(row => row['弄']));
+    const filePath = './road.csv';
+    try {
+      const response = await fetch(filePath, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
 
-            const areaFilter = document.getElementById('areaFilter');
-            const laneFilter = document.getElementById('laneFilter');
-            const alleyFilter = document.getElementById('alleyFilter');
+      const text = await response.text();
+      const parsed = parseCSV(text);
 
-            areaFilter.innerHTML = '<option value="">所有地區</option>';
-            laneFilter.innerHTML = '<option value="">所有巷</option>';
-            alleyFilter.innerHTML = '<option value="">所有弄</option>';
+      if (!parsed.length) throw new Error('CSV 內容為空或標題列不合法');
 
-            areaSet.forEach(area => {
-                const option = document.createElement('option');
-                option.value = area;
-                option.textContent = area;
-                areaFilter.appendChild(option);
-            });
+      csvData = parsed;
+      statusDiv.innerHTML = '<p class="success">成功讀取 road.csv 檔案！</p>';
+      console.log("CSV 檔案已成功載入！筆數：", csvData.length);
+    } catch (error) {
+      statusDiv.innerHTML = `
+        <p class="error">讀取 <code>road.csv</code> 失敗：${error.message}</p>
+        <p>請改用下方「選擇檔案」載入，或以本機伺服器方式開啟此頁。</p>
+      `;
+      console.error("載入 CSV 檔案失敗:", error);
+      // 顯示備援的檔案上傳
+      fileInput.style.display = 'inline-block';
+    }
+  }
 
-            laneSet.forEach(lane => {
-                const option = document.createElement('option');
-                option.value = lane;
-                option.textContent = lane;
-                laneFilter.appendChild(option);
-            });
+  // 備援：使用者手動選擇 CSV
+  function handleFileUpload(evt) {
+    const statusDiv = document.getElementById('status');
+    const file = evt.target.files?.[0];
+    if (!file) return;
 
-            alleySet.forEach(alley => {
-                const option = document.createElement('option');
-                option.value = alley;
-                option.textContent = alley;
-                alleyFilter.appendChild(option);
-            });
-        }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const parsed = parseCSV(text);
+        if (!parsed.length) throw new Error('CSV 內容為空或標題列不合法');
+        csvData = parsed;
+        statusDiv.innerHTML = '<p class="success">已從檔案成功載入 CSV！</p>';
+      } catch (err) {
+        statusDiv.innerHTML = `<p class="error">解析 CSV 失敗：${err.message}</p>`;
+      }
+    };
+    reader.onerror = () => {
+      statusDiv.innerHTML = `<p class="error">無法讀取所選檔案。</p>`;
+    };
+    reader.readAsText(file, 'utf-8');
+  }
 
-        function applyFilters() {
-            const areaFilter = document.getElementById('areaFilter').value;
-            const laneFilter = document.getElementById('laneFilter').value;
-            const alleyFilter = document.getElementById('alleyFilter').value;
+  function queryRoadData() {
+    const roadName = document.getElementById('roadName').value.trim();
+    const resultDiv = document.getElementById('result');
+    const filtersDiv = document.getElementById('filters');
 
-            const results = filteredData.filter(row => {
-                const areaMatch = !areaFilter || row['地區'] === areaFilter;
-                const laneMatch = !laneFilter || row['巷'] === laneFilter;
-                const alleyMatch = !alleyFilter || row['弄'] === alleyFilter;
-                return areaMatch && laneMatch && alleyMatch;
-            });
+    if (!csvData.length) {
+      resultDiv.innerHTML = '<p style="color:red;">尚未載入 CSV（請確認已讀取成功或選擇檔案）</p>';
+      filtersDiv.style.display = 'none';
+      return;
+    }
 
-            displayResults(results);
-        }
+    if (!roadName) {
+      resultDiv.innerHTML = '<p style="color:red;">請輸入路名的關鍵字！</p>';
+      filtersDiv.style.display = 'none';
+      return;
+    }
 
-        function displayResults(results) {
-            const resultDiv = document.getElementById('result');
+    filteredData = csvData.filter(row => (row['路名'] || '').includes(roadName));
+    if (filteredData.length === 0) {
+      resultDiv.innerHTML = `<p>沒有找到包含「${roadName}」的道路資料。</p>`;
+      filtersDiv.style.display = 'none';
+      return;
+    }
 
-            if (results.length === 0) {
-                resultDiv.innerHTML = `<p>沒有符合篩選條件的資料。</p>`;
-                return;
-            }
+    populateFilters();
+    filtersDiv.style.display = 'block';
+    displayResults(filteredData);
+  }
 
-            let tableHtml = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>路名</th>
-                            <th>地區</th>
-                            <th>巷</th>
-                            <th>弄</th>
-                            <th>路寬</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
+  function populateFilters() {
+    const areaSet = new Set(filteredData.map(row => row['地區'] || ''));
+    const laneSet = new Set(filteredData.map(row => row['巷'] || ''));
+    const alleySet = new Set(filteredData.map(row => row['弄'] || ''));
 
-            results.forEach((item, index) => {
-                tableHtml += `
-                    <tr>
-                        <td>${index + 1}</td>
-                        <td>${item['路名'] || '無資料'}</td>
-                        <td>${item['地區'] || '無資料'}</td>
-                        <td>${item['巷'] || '無資料'}</td>
-                        <td>${item['弄'] || '無資料'}</td>
-                        <td class="road-width">${item['路寬'] || '無資料'}</td>
-                    </tr>
-                `;
-            });
+    const areaFilter = document.getElementById('areaFilter');
+    const laneFilter = document.getElementById('laneFilter');
+    const alleyFilter = document.getElementById('alleyFilter');
 
-            tableHtml += `</tbody></table>`;
-            resultDiv.innerHTML = tableHtml;
-        }
+    areaFilter.innerHTML = '<option value="">所有地區</option>';
+    laneFilter.innerHTML = '<option value="">所有巷</option>';
+    alleyFilter.innerHTML = '<option value="">所有弄</option>';
 
-        // 頁面載入後自動讀取 CSV
-        window.onload = loadCSV;
-    </script>
+    for (const v of areaSet) if (v) areaFilter.appendChild(new Option(v, v));
+    for (const v of laneSet) if (v) laneFilter.appendChild(new Option(v, v));
+    for (const v of alleySet) if (v) alleyFilter.appendChild(new Option(v, v));
+  }
+
+  function applyFilters() {
+    const area = document.getElementById('areaFilter').value;
+    const lane = document.getElementById('laneFilter').value;
+    const alley = document.getElementById('alleyFilter').value;
+
+    const results = filteredData.filter(row => {
+      const areaMatch = !area || row['地區'] === area;
+      const laneMatch = !lane || row['巷'] === lane;
+      const alleyMatch = !alley || row['弄'] === alley;
+      return areaMatch && laneMatch && alleyMatch;
+    });
+
+    displayResults(results);
+  }
+
+  function displayResults(results) {
+    const resultDiv = document.getElementById('result');
+    if (!results.length) {
+      resultDiv.innerHTML = `<p>沒有符合篩選條件的資料。</p>`;
+      return;
+    }
+
+    let html = `
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>路名</th>
+            <th>地區</th>
+            <th>巷</th>
+            <th>弄</th>
+            <th>路寬</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    results.forEach((item, idx) => {
+      html += `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${item['路名'] || '無資料'}</td>
+          <td>${item['地區'] || '無資料'}</td>
+          <td>${item['巷'] || '無資料'}</td>
+          <td>${item['弄'] || '無資料'}</td>
+          <td class="road-width">${item['路寬'] || '無資料'}</td>
+        </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    resultDiv.innerHTML = html;
+  }
+
+  window.onload = loadCSV;
+</script>
+
 </body>
 </html>
+
