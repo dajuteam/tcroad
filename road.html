@@ -37,53 +37,52 @@
             font-weight: bold;
         }
         #status {
-            margin: 10px;
-            font-size: 14px;
-            padding: 10px;
+            margin: 20px 0;
+            font-size: 16px;
+            padding: 15px;
             border-radius: 4px;
         }
         .success {
-            color: green;
-            background-color: #e8f5e8;
+            color: #2e7d32;
+            background-color: #e8f5e9;
             border: 1px solid #4caf50;
         }
         .error {
-            color: red;
-            background-color: #ffe8e8;
+            color: #d32f2f;
+            background-color: #ffebee;
             border: 1px solid #f44336;
         }
-        .warning {
-            color: orange;
-            background-color: #fff3cd;
-            border: 1px solid #ffc107;
+        .loading {
+            color: #f57f17;
+            background-color: #fffde7;
+            border: 1px solid #ffeb3b;
         }
-        .file-upload {
-            margin: 20px 0;
-            padding: 20px;
-            border: 2px dashed #ccc;
+        .search-section {
+            margin: 30px 0;
+        }
+        #roadName {
+            width: 300px;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
             border-radius: 4px;
-            background-color: #f9f9f9;
         }
-        .upload-button {
-            background-color: #4CAF50;
+        .search-btn {
+            background-color: #2196F3;
             color: white;
-            padding: 10px 20px;
             border: none;
+            padding: 12px 24px;
+            font-size: 16px;
             border-radius: 4px;
             cursor: pointer;
+            margin-left: 10px;
         }
-        .upload-button:hover {
-            background-color: #45a049;
+        .search-btn:hover {
+            background-color: #1976D2;
         }
-        #csvFileInput {
-            margin: 10px;
-        }
-        .instructions {
-            text-align: left;
-            background-color: #f0f8ff;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 20px 0;
+        .search-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -91,25 +90,11 @@
     <div class="container">
         <h1>道路資訊查詢</h1>
         
-        <div class="instructions">
-            <h3>使用說明：</h3>
-            <p><strong>方法一：</strong> 如果 road.csv 檔案在同一資料夾中，請使用本地伺服器開啟此檔案（如：Live Server 擴充功能）</p>
-            <p><strong>方法二：</strong> 直接上傳 CSV 檔案（建議使用此方法）</p>
-        </div>
+        <div id="status" class="loading">🔄 正在讀取 road.csv 檔案，請稍候...</div>
 
-        <div class="file-upload">
-            <h3>上傳 CSV 檔案</h3>
-            <input type="file" id="csvFileInput" accept=".csv" />
-            <button class="upload-button" onclick="handleFileUpload()">上傳並讀取檔案</button>
-        </div>
-
-        <button onclick="loadCSVFromServer()">嘗試從伺服器讀取 road.csv</button>
-        
-        <div id="status"></div>
-
-        <div style="margin: 20px 0;">
-            <input type="text" id="roadName" placeholder="輸入路名關鍵字">
-            <button onclick="queryRoadData()">搜尋</button>
+        <div class="search-section">
+            <input type="text" id="roadName" placeholder="輸入路名關鍵字" disabled>
+            <button class="search-btn" id="searchBtn" onclick="queryRoadData()" disabled>搜尋</button>
         </div>
 
         <div id="filters" style="display: none;">
@@ -131,84 +116,57 @@
         let csvData = [];
         let filteredData = [];
 
-        // 從伺服器讀取 CSV 檔案
+        // 頁面載入後自動讀取 CSV 檔案
+        window.onload = function() {
+            loadCSVFromServer();
+        };
+
+        // 自動讀取同層資料夾的 road.csv 檔案
         async function loadCSVFromServer() {
             const filePath = './road.csv';
             const statusDiv = document.getElementById('status');
+            const roadNameInput = document.getElementById('roadName');
+            const searchBtn = document.getElementById('searchBtn');
             
             try {
-                statusDiv.innerHTML = '<p class="warning">正在嘗試讀取 road.csv...</p>';
+                // 顯示讀取中狀態
+                statusDiv.innerHTML = '🔄 正在讀取 road.csv 檔案，請稍候...';
+                statusDiv.className = 'loading';
                 
                 const response = await fetch(filePath);
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(`無法載入檔案 (HTTP ${response.status})`);
                 }
                 
                 const text = await response.text();
                 csvData = parseCSV(text);
-                statusDiv.innerHTML = `<p class="success">✅ 成功從伺服器讀取 road.csv 檔案！共載入 ${csvData.length} 筆資料</p>`;
+                
+                if (csvData.length === 0) {
+                    throw new Error('CSV 檔案中沒有有效資料');
+                }
+                
+                // 顯示成功狀態並啟用搜尋功能
+                statusDiv.innerHTML = `✅ 成功讀取 road.csv 檔案！共載入 ${csvData.length} 筆資料，可以開始查詢道路資訊。`;
+                statusDiv.className = 'success';
+                
+                // 啟用搜尋功能
+                roadNameInput.disabled = false;
+                searchBtn.disabled = false;
+                roadNameInput.focus(); // 自動聚焦到搜尋框
+                
                 console.log("CSV 檔案已成功載入！資料筆數：", csvData.length);
                 
             } catch (error) {
                 console.error("載入 CSV 檔案失敗:", error);
-                statusDiv.innerHTML = `
-                    <div class="error">
-                        <p>❌ 無法從伺服器讀取 road.csv 檔案</p>
-                        <p><strong>可能原因：</strong></p>
-                        <ul style="text-align: left;">
-                            <li>瀏覽器的 CORS 安全政策限制</li>
-                            <li>檔案不存在或路徑錯誤</li>
-                            <li>需要使用本地伺服器（如 Live Server）</li>
-                        </ul>
-                        <p><strong>建議解決方案：</strong></p>
-                        <ul style="text-align: left;">
-                            <li>使用上方的檔案上傳功能</li>
-                            <li>或安裝 VS Code 的 Live Server 擴充功能開啟此檔案</li>
-                        </ul>
-                    </div>
-                `;
+                
+                // 顯示失敗狀態
+                statusDiv.innerHTML = `❌ 無法讀取 road.csv 檔案<br><strong>錯誤原因：</strong> ${error.message}<br><strong>請確認：</strong> road.csv 檔案是否存在於同一資料夾中`;
+                statusDiv.className = 'error';
+                
+                // 保持搜尋功能停用
+                roadNameInput.disabled = true;
+                searchBtn.disabled = true;
             }
-        }
-
-        // 處理檔案上傳
-        function handleFileUpload() {
-            const fileInput = document.getElementById('csvFileInput');
-            const statusDiv = document.getElementById('status');
-            
-            if (!fileInput.files.length) {
-                alert('請先選擇一個 CSV 檔案！');
-                return;
-            }
-
-            const file = fileInput.files[0];
-            
-            if (!file.name.toLowerCase().endsWith('.csv')) {
-                alert('請選擇 CSV 格式的檔案！');
-                return;
-            }
-
-            const reader = new FileReader();
-            
-            reader.onload = function(e) {
-                try {
-                    statusDiv.innerHTML = '<p class="warning">🔄 正在解析上傳的檔案...</p>';
-                    
-                    const text = e.target.result;
-                    csvData = parseCSV(text);
-                    statusDiv.innerHTML = `<p class="success">✅ 成功上傳並讀取 ${file.name}！共載入 ${csvData.length} 筆資料，可以開始查詢道路資訊。</p>`;
-                    console.log("CSV 檔案已成功載入！資料筆數：", csvData.length);
-                } catch (error) {
-                    console.error("解析 CSV 檔案失敗:", error);
-                    statusDiv.innerHTML = '<p class="error">❌ CSV 檔案格式錯誤，請檢查檔案內容！</p>';
-                }
-            };
-            
-            reader.onerror = function() {
-                statusDiv.innerHTML = '<p class="error">❌ 讀取檔案時發生錯誤！</p>';
-            };
-            
-            statusDiv.innerHTML = '<p class="warning">🔄 正在讀取上傳的檔案...</p>';
-            reader.readAsText(file, 'UTF-8');
         }
 
         function parseCSV(text) {
@@ -241,13 +199,13 @@
             const filtersDiv = document.getElementById('filters');
 
             if (csvData.length === 0) {
-                resultDiv.innerHTML = '<p class="error">請先載入 CSV 檔案！</p>';
+                resultDiv.innerHTML = '<p class="error" style="color: red; padding: 10px;">CSV 檔案尚未載入完成，請稍候再試！</p>';
                 filtersDiv.style.display = 'none';
                 return;
             }
 
             if (!roadName) {
-                resultDiv.innerHTML = '<p style="color: red;">請輸入路名的關鍵字！</p>';
+                resultDiv.innerHTML = '<p style="color: red; padding: 10px;">請輸入路名的關鍵字！</p>';
                 filtersDiv.style.display = 'none';
                 return;
             }
@@ -258,7 +216,7 @@
             });
 
             if (filteredData.length === 0) {
-                resultDiv.innerHTML = `<p>沒有找到包含「${roadName}」的道路資料。</p>`;
+                resultDiv.innerHTML = `<p style="padding: 10px;">沒有找到包含「${roadName}」的道路資料。</p>`;
                 filtersDiv.style.display = 'none';
                 return;
             }
@@ -322,12 +280,12 @@
             const resultDiv = document.getElementById('result');
             
             if (results.length === 0) {
-                resultDiv.innerHTML = '<p>沒有符合篩選條件的資料。</p>';
+                resultDiv.innerHTML = '<p style="padding: 10px;">沒有符合篩選條件的資料。</p>';
                 return;
             }
 
             let tableHtml = `
-                <p>找到 ${results.length} 筆資料：</p>
+                <p style="margin: 20px 0; font-weight: bold;">找到 ${results.length} 筆資料：</p>
                 <table>
                     <thead>
                         <tr>
@@ -363,17 +321,12 @@
             resultDiv.innerHTML = tableHtml;
         }
 
-        // 頁面載入後提示用戶選擇載入方式
-        window.onload = function() {
-            const statusDiv = document.getElementById('status');
-            statusDiv.innerHTML = `
-                <div class="warning">
-                    <p>📁 請選擇載入 CSV 檔案的方式：</p>
-                    <p>• 點擊「上傳並讀取檔案」按鈕直接選擇 CSV 檔案（推薦）</p>
-                    <p>• 或點擊「嘗試從伺服器讀取」按鈕讀取同資料夾的 road.csv</p>
-                </div>
-            `;
-        };
+        // 支援 Enter 鍵搜尋
+        document.getElementById('roadName').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !this.disabled) {
+                queryRoadData();
+            }
+        });
     </script>
 </body>
 </html>
